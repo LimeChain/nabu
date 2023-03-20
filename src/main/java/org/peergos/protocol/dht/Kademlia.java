@@ -44,7 +44,8 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         int successes = 0;
         for (CompletableFuture<? extends KademliaController> future : futures) {
             try {
-                future.orTimeout(5, TimeUnit.SECONDS).join();
+                // This is where the controller times out
+                future.orTimeout(20, TimeUnit.SECONDS).join();
                 successes++;
             } catch (Exception e) {}
         }
