@@ -37,7 +37,7 @@ public class BootstrapTest {
     @Test
     public void bootstrap() {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(), new RamRecordStore(), new RamBlockstore(), (c, b, p, a) -> CompletableFuture.completedFuture(true));
+                new RamProviderStore(), new RamRecordStore(), new RamBlockstore(), (c, b, p, a) -> CompletableFuture.completedFuture(true), false);
         Host node1 = builder1.build();
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1);
