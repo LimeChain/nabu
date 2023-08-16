@@ -135,6 +135,13 @@
             <groupId>com.github.peergos</groupId>
             <artifactId>jvm-libp2p</artifactId>
             <version>0.16.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                    <!-- newest slf4j-api is removed as it conflicts with Spring Boot's logger and disables our logs -->
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
