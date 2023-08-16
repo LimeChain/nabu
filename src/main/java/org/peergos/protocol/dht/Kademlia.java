@@ -47,6 +47,10 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
         this.addressBook = addrs;
     }
 
+    public AddressBook getAddressBook() {
+        return addressBook;
+    }
+
     public int bootstrapRoutingTable(Host host, List<MultiAddress> addrs, Predicate<String> filter) {
         List<String> resolved = addrs.stream()
                 .parallel()
