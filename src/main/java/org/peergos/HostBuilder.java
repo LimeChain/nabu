@@ -85,13 +85,6 @@ public class HostBuilder {
         return this;
     }
 
-
-    public HostBuilder listenLocalhost(int listenPort) {
-        listenAddrs.add("/ip4/127.0.0.1/tcp/" + listenPort);
-        return this;
-    }
-
-
     public HostBuilder generateIdentity() {
         return setPrivKey(Ed25519Kt.generateEd25519KeyPair().getFirst());
     }
