@@ -94,9 +94,6 @@
                     <descriptorRefs>
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                     </descriptorRefs>
-                    <excludes>
-                        <exclude>META-INF/**</exclude>
-                    </excludes>
                 </configuration>
 
                 <executions>
