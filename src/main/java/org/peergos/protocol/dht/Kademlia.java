@@ -38,8 +38,10 @@ public class Kademlia extends StrictProtocolBinding<KademliaController> implemen
     private final Integer replication;
     private final Integer alpha;
 
-    public Kademlia(KademliaEngine dht, Integer replication, Integer alpha, boolean localOnly, boolean clientMode) {
-        super(localOnly ? LAN_DHT_ID : WAN_DHT_ID, new KademliaProtocol(dht, clientMode));
+    // INTENTIONALITY: We want to preserve `protocolId` as a parameter since we're using Nabu for other protocol IDs,
+    // hence a significant, and intentional, divergence from the upstream.
+    public Kademlia(KademliaEngine dht, String protocolId, Integer replication, Integer alpha, boolean localOnly, boolean clientMode) {
+        super(protocolId, new KademliaProtocol(dht, clientMode));
         this.engine = dht;
         this.localDht = localOnly;
         this.replication = replication;
