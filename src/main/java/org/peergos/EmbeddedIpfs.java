@@ -221,9 +221,9 @@ public class EmbeddedIpfs {
                                      List<MultiAddress> swarmAddresses,
                                      List<MultiAddress> bootstrap,
                                      IdentitySection identity,
-                                     boolean localEnabled,
                                      BlockRequestAuthoriser authoriser,
-                                     Optional<HttpProtocol.HttpRequestProcessor> handler) {
+                                     Optional<HttpProtocol.HttpRequestProcessor> handler,
+                                     boolean localEnabled) {
         return build(records, blocks, provideBlocks, swarmAddresses, bootstrap, identity, authoriser, handler, localEnabled,
                 Optional.empty(), Optional.empty());
     }

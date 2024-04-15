@@ -106,7 +106,7 @@ public class HostBuilder {
                                      Blockstore blocks,
                                      BlockRequestAuthoriser authoriser,
                                      boolean localEnabled) {
-        return create(listenPort, providers, records, blocks, authoriser, false);
+        return create(listenPort, providers, records, blocks, authoriser, localEnabled, false);
     }
 
     public static HostBuilder create(int listenPort,
