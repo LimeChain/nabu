@@ -3,6 +3,7 @@ package org.peergos.blockstore;
 import io.ipfs.cid.*;
 import io.ipfs.multihash.*;
 import org.peergos.*;
+import org.peergos.blockstore.metadatadb.BlockMetadata;
 import org.peergos.util.*;
 
 import java.util.*;
@@ -53,7 +54,13 @@ public class RamBlockstore implements Blockstore {
     }
 
     @Override
-    public CompletableFuture<List<Cid>> refs() {
+    public CompletableFuture<List<Cid>> refs(boolean useBlockstore) {
         return CompletableFuture.completedFuture(new ArrayList(blocks.keySet()));
     }
+
+    @Override
+    public CompletableFuture<BlockMetadata> getBlockMetadata(Cid h) {
+        throw new IllegalStateException("Unsupported operation!");
+    }
+
 }

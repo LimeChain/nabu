@@ -2,7 +2,6 @@ package org.peergos;
 
 import io.ipfs.api.*;
 import io.ipfs.cid.*;
-import io.ipfs.multiaddr.*;
 import io.ipfs.multihash.Multihash;
 import io.libp2p.core.*;
 import io.libp2p.core.multiformats.*;
@@ -24,7 +23,7 @@ public class IpnsTest {
     public void publishIPNSRecordToKubo() throws IOException {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(), new RamRecordStore(), blockstore1, (c, b, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
         Host node1 = builder1.build();
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1);
@@ -48,8 +47,9 @@ public class IpnsTest {
 
             for (int i = 0; i < 10; i++) {
                 try {
+                    byte[] value = IPNS.createSignedRecord(pathToPublish.getBytes(), expiry, sequence, ttl, node1.getPrivKey());
                     success = dht.dial(node1, address2).getController().join()
-                            .putValue(pathToPublish, expiry, sequence, ttl, node1Id, node1.getPrivKey())
+                            .putValue(node1Id, value)
                             .orTimeout(2, TimeUnit.SECONDS).join();
                     break;
                 } catch (Exception timeout) {
@@ -70,7 +70,7 @@ public class IpnsTest {
     public void retrieveKuboPublishedIPNS() throws IOException {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(10000 + new Random().nextInt(50000),
-                new RamProviderStore(), new RamRecordStore(), blockstore1, (c, b, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
         Host node1 = builder1.build();
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1);
@@ -93,7 +93,7 @@ public class IpnsTest {
                     break;
                 PeerAddresses closer = queue.poll();
                 List<String> candidates = closer.addresses.stream()
-                        .map(MultiAddress::toString)
+                        .map(a -> a.toString())
                         .filter(a -> a.contains("tcp") && a.contains("ip4") && !a.contains("127.0.0.1") && !a.contains("/172."))
                         .collect(Collectors.toList());
                 for (String candidate: candidates) {

@@ -2,13 +2,12 @@ package org.peergos;
 
 import com.sun.net.httpserver.HttpServer;
 import io.ipfs.multiaddr.MultiAddress;
-import io.netty.handler.codec.http.*;
-import org.peergos.client.*;
+import org.peergos.blockstore.metadatadb.BlockMetadataStore;
 import org.peergos.config.*;
 import org.peergos.net.APIHandler;
 import org.peergos.net.HttpProxyHandler;
+import org.peergos.protocol.dht.DatabaseRecordStore;
 import org.peergos.protocol.http.*;
-import org.peergos.util.HttpUtil;
 import org.peergos.util.JSONParser;
 import org.peergos.util.JsonHelper;
 import org.peergos.util.Logging;
@@ -18,6 +17,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
@@ -25,10 +25,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static org.peergos.EmbeddedIpfs.buildBlockStore;
+import static org.peergos.EmbeddedIpfs.buildBlockMetadata;
 
 public class Nabu {
 
-    private static final Logger LOG = Logger.getLogger(Nabu.class.getName());
+    public static final String IPFS_PATH = "IPFS_PATH";
+    public static final Path DEFAULT_IPFS_DIR_PATH =
+            Paths.get(System.getProperty("user.home"), ".ipfs");
+
+    private static final Logger LOG = Logging.LOG();
 
     private static HttpProtocol.HttpRequestProcessor proxyHandler(MultiAddress target) {
         return (s, req, h) -> HttpProtocol.proxyRequest(req, new InetSocketAddress(target.getHost(), target.getPort()), h);
@@ -36,16 +41,20 @@ public class Nabu {
 
     public Nabu(Args args) throws Exception {
         Path ipfsPath = getIPFSPath(args);
-        Logging.init(ipfsPath, args.getBoolean("logToConsole", false));
+        Logging.init(ipfsPath, args.getBoolean("log-to-console", true));
         Config config = readConfig(ipfsPath, args);
         if (config.metrics.enabled) {
             AggregatedMetrics.startExporter(config.metrics.address, config.metrics.port);
         }
         LOG.info("Starting Nabu version: " + APIHandler.CURRENT_VERSION);
-        BlockRequestAuthoriser authoriser = (c, b, p, a) -> CompletableFuture.completedFuture(true);
+        BlockRequestAuthoriser authoriser = (c, p, a) -> CompletableFuture.completedFuture(true);
 
-        EmbeddedIpfs ipfs = EmbeddedIpfs.build(ipfsPath,
-                buildBlockStore(config, ipfsPath),
+        Path datastorePath = ipfsPath.resolve("datastore").resolve("h2-v2.datastore");
+        DatabaseRecordStore records = new DatabaseRecordStore(datastorePath.toAbsolutePath().toString());
+        BlockMetadataStore meta = buildBlockMetadata(args);
+        EmbeddedIpfs ipfs = EmbeddedIpfs.build(records,
+                buildBlockStore(config, ipfsPath, meta, true),
+                true,
                 config.addresses.getSwarmAddresses(),
                 config.bootstrap.getBootstrapAddresses(),
                 config.identity,
@@ -70,9 +79,8 @@ public class Nabu {
         apiServer.start();
 
         Thread shutdownHook = new Thread(() -> {
-            LOG.info("Stopping server...");
+            LOG.info("Stopping API server...");
             try {
-                ipfs.stop().join();
                 apiServer.stop(3); //wait max 3 seconds
             } catch (Exception ex) {
                 ex.printStackTrace();

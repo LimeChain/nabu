@@ -3,6 +3,7 @@ package org.peergos.blockstore;
 import io.ipfs.cid.Cid;
 import io.ipfs.multihash.Multihash;
 import org.peergos.Hash;
+import org.peergos.blockstore.metadatadb.BlockMetadata;
 import org.peergos.util.*;
 
 import java.io.*;
@@ -21,7 +22,7 @@ import java.util.stream.Stream;
 
 public class FileBlockstore implements Blockstore {
 
-    private static final Logger LOG = Logger.getLogger(FileBlockstore.class.getName());
+    private static final Logger LOG = Logging.LOG();
 
     private final Path blocksRoot;
     private final String BLOCKS = "blocks";
@@ -133,10 +134,12 @@ public class FileBlockstore implements Blockstore {
     }
 
     @Override
-    public CompletableFuture<List<Cid>> refs() {
+    public CompletableFuture<List<Cid>> refs(boolean useBlockstore) {
         List<Path> result = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(blocksRoot)) {
-            result = walk.filter(f -> Files.isRegularFile(f) && f.getFileName().toString().endsWith(BLOCK_FILE_SUFFIX))
+            result = walk.filter(f -> Files.isRegularFile(f) &&
+                            f.toFile().length() > 0 &&
+                            f.getFileName().toString().endsWith(BLOCK_FILE_SUFFIX))
                     .collect(Collectors.toList());
         } catch (IOException ioe) {
             LOG.log(Level.WARNING, "Unable to retrieve local refs: " + ioe);
@@ -146,5 +149,10 @@ public class FileBlockstore implements Blockstore {
             return keyToHash(filename.substring(0, filename.length() - BLOCK_FILE_SUFFIX.length()));
         }).collect(Collectors.toList());
         return CompletableFuture.completedFuture(cidList);
+    }
+
+    @Override
+    public CompletableFuture<BlockMetadata> getBlockMetadata(Cid h) {
+        throw new IllegalStateException("Unsupported operation!");
     }
 }

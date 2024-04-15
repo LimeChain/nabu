@@ -44,7 +44,8 @@ public class APIServiceTest {
 
     @Test
     public void bulkGetTest() {
-        EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(new RamBlockstore()), null, null, null, Optional.empty(), Collections.emptyList());
+        EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(new RamBlockstore()), null,
+                null, null, Optional.empty(), Collections.emptyList(), Optional.empty());
         Cid cid1 = ipfs.blockstore.put("Hello".getBytes(), Cid.Codec.Raw).join();
         Cid cid2= ipfs.blockstore.put("world!".getBytes(), Cid.Codec.Raw).join();
         List<Want> wants = new ArrayList<>();
@@ -55,7 +56,8 @@ public class APIServiceTest {
     }
 
     public static void runAPIServiceTest(Blockstore blocks) {
-        EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(blocks), null, null, null, Optional.empty(), Collections.emptyList());
+        EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(blocks), null,
+                null, null, Optional.empty(), Collections.emptyList(), Optional.empty());
         Cid cid = Cid.decode("zdpuAwfJrGYtiGFDcSV3rDpaUrqCtQZRxMjdC6Eq9PNqLqTGg");
         Assert.assertFalse("cid found", ipfs.blockstore.has(cid).join());
         String text = "Hello world!";
@@ -68,7 +70,7 @@ public class APIServiceTest {
         Assert.assertTrue("block retrieved", blockRetrieved.size() == 1);
         Assert.assertTrue("block is as expected", text.equals(new String(blockRetrieved.get(0).block)));
 
-        List<Cid> localRefs = ipfs.blockstore.refs().join();
+        List<Cid> localRefs = ipfs.blockstore.refs(false).join();
         for (Cid ref : localRefs) {
             List<HashedBlock> res = ipfs.getBlocks(List.of(new Want(ref)), Collections.emptySet(), false);
             Assert.assertTrue("ref retrieved", res.size() == 1);

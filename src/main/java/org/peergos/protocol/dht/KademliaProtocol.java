@@ -2,12 +2,23 @@ package org.peergos.protocol.dht;
 
 import io.libp2p.core.*;
 import io.libp2p.protocol.*;
+import io.prometheus.client.*;
 import org.jetbrains.annotations.*;
 import org.peergos.protocol.dht.pb.Dht;
 
 import java.util.concurrent.*;
 
 public class KademliaProtocol extends ProtobufProtocolHandler<KademliaController> {
+
+    private static final Counter initiatorReceivedBytes = Counter.build()
+            .name("kademlia_initiator_received_bytes")
+            .help("Total received bytes in kademlia protocol initiator")
+            .register();
+    private static final Counter initiatorSentBytes = Counter.build()
+            .name("kademlia_initiator_sent_bytes")
+            .help("Total sent bytes in kademlia protocol initiator")
+            .register();
+
     public static final int MAX_MESSAGE_SIZE = 1024*1024;
 
     private final KademliaEngine engine;
@@ -22,18 +33,19 @@ public class KademliaProtocol extends ProtobufProtocolHandler<KademliaController
     @NotNull
     @Override
     protected CompletableFuture<KademliaController> onStartInitiator(@NotNull Stream stream) {
-        engine.addOutgoingConnection(stream.remotePeerId(), stream.getConnection().remoteAddress());
-        ReplyHandler handler = new ReplyHandler(stream);
+        engine.addOutgoingConnection(stream.remotePeerId());
+        ReplyHandler handler = new ReplyHandler(stream, initiatorSentBytes, initiatorReceivedBytes);
         stream.pushHandler(handler);
         return CompletableFuture.completedFuture(handler);
     }
 
+    @NotNull
     @Override
     protected CompletableFuture<KademliaController> onStartResponder(@NotNull Stream stream) {
         if (clientMode) {
             throw new Libp2pException("Client mode mustn't respond to queries");
         }
-        engine.addIncomingConnection(stream.remotePeerId(), stream.getConnection().remoteAddress());
+        engine.addIncomingConnection(stream.remotePeerId());
         IncomingRequestHandler handler = new IncomingRequestHandler(engine);
         stream.pushHandler(handler);
         return CompletableFuture.completedFuture(handler);
@@ -42,25 +54,31 @@ public class KademliaProtocol extends ProtobufProtocolHandler<KademliaController
     class ReplyHandler implements ProtocolMessageHandler<Dht.Message>, KademliaController {
         private final CompletableFuture<Dht.Message> resp = new CompletableFuture<>();
         private final Stream stream;
+        private final Counter sentBytes, receivedBytes;
 
-        public ReplyHandler(Stream stream) {
+        public ReplyHandler(Stream stream, Counter sentBytes, Counter receivedBytes) {
             this.stream = stream;
+            this.sentBytes = sentBytes;
+            this.receivedBytes = receivedBytes;
         }
 
         @Override
         public CompletableFuture<Dht.Message> rpc(Dht.Message msg) {
             stream.writeAndFlush(msg);
+            sentBytes.inc(msg.getSerializedSize());
             return resp;
         }
 
         @Override
         public CompletableFuture<Boolean> send(Dht.Message msg) {
             stream.writeAndFlush(msg);
+            sentBytes.inc(msg.getSerializedSize());
             return CompletableFuture.completedFuture(true);
         }
 
         @Override
         public void onMessage(@NotNull Stream stream, Dht.Message msg) {
+            receivedBytes.inc(msg.getSerializedSize());
             resp.complete(msg);
             stream.closeWrite();
         }

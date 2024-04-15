@@ -11,7 +11,6 @@ import io.libp2p.core.mux.*;
 import io.libp2p.crypto.keys.*;
 import io.libp2p.protocol.*;
 import io.libp2p.security.noise.*;
-import io.libp2p.security.tls.*;
 import io.libp2p.transport.tcp.*;
 import io.libp2p.core.crypto.KeyKt;
 import org.peergos.blockstore.*;
@@ -107,18 +106,28 @@ public class HostBuilder {
                                      Blockstore blocks,
                                      BlockRequestAuthoriser authoriser,
                                      boolean localEnabled) {
+        return create(listenPort, providers, records, blocks, authoriser, false);
+    }
+
+    public static HostBuilder create(int listenPort,
+                                     ProviderStore providers,
+                                     RecordStore records,
+                                     Blockstore blocks,
+                                     BlockRequestAuthoriser authoriser,
+                                     boolean localEnabled,
+                                     boolean blockAggressivePeers) {
         HostBuilder builder = new HostBuilder()
                 .generateIdentity()
                 .listen(List.of(new MultiAddress("/ip4/0.0.0.0/tcp/" + listenPort)));
         Multihash ourPeerId = Multihash.deserialize(builder.peerId.getBytes());
-        Kademlia dht = new Kademlia(new KademliaEngine(ourPeerId, providers, records, blocks), "/ipfs/kad/1.0.0", 20, 3, localEnabled, false);
+        Kademlia dht = new Kademlia(new KademliaEngine(ourPeerId, providers, records, blocks), 20, 3, localEnabled, false);
         CircuitStopProtocol.Binding stop = new CircuitStopProtocol.Binding();
         CircuitHopProtocol.RelayManager relayManager = CircuitHopProtocol.RelayManager.limitTo(builder.privKey, ourPeerId, 5);
         return builder.addProtocols(List.of(
                 new Ping(),
                 new AutonatProtocol.Binding(),
                 new CircuitHopProtocol.Binding(relayManager, stop),
-                new Bitswap(new BitswapEngine(blocks, authoriser)),
+                new Bitswap(new BitswapEngine(blocks, authoriser, Bitswap.MAX_MESSAGE_SIZE, blockAggressivePeers)),
                 dht));
     }
 
@@ -145,7 +154,7 @@ public class HostBuilder {
             b.getIdentity().setFactory(() -> privKey);
             b.getTransports().add(TcpTransport::new);
             b.getSecureChannels().add(NoiseXXSecureChannel::new);
-            b.getSecureChannels().add(TlsSecureChannel::new);
+//            b.getSecureChannels().add(TlsSecureChannel::new);
 
             b.getMuxers().addAll(muxers);
             RamAddressBook addrs = new RamAddressBook();
@@ -157,8 +166,14 @@ public class HostBuilder {
                 b.getProtocols().add(protocol);
                 if (protocol instanceof AddressBookConsumer)
                     ((AddressBookConsumer) protocol).setAddressBook(addrs);
+                if (protocol instanceof ConnectionHandler)
+                    b.getConnectionHandlers().add((ConnectionHandler) protocol);
             }
 
+            Optional<Kademlia> wan = protocols.stream()
+                    .filter(p -> p instanceof Kademlia && p.getProtocolDescriptor().getAnnounceProtocols().contains("/ipfs/kad/1.0.0"))
+                    .map(p -> (Kademlia) p)
+                    .findFirst();
             // Send an identify req on all new incoming connections
             b.getConnectionHandlers().add(connection -> {
                 PeerId remotePeer = connection.secureSession().getRemoteId();
@@ -166,14 +181,30 @@ public class HostBuilder {
                 addrs.addAddrs(remotePeer, 0, remote);
                 if (connection.isInitiator())
                     return;
-                StreamPromise<IdentifyController> stream = connection.muxerSession()
-                        .createStream(new IdentifyBinding(new IdentifyProtocol()));
-                stream.getController()
-                        .thenCompose(IdentifyController::id)
-                        .thenApply(remoteId -> addrs.addAddrs(remotePeer, 0, remoteId.getListenAddrsList()
-                                .stream()
-                                .map(bytes -> Multiaddr.deserialize(bytes.toByteArray()))
-                                .toArray(Multiaddr[]::new)));
+                addrs.getAddrs(remotePeer).thenAccept(existing -> {
+                    if (! existing.isEmpty())
+                        return;
+                    StreamPromise<IdentifyController> stream = connection.muxerSession()
+                            .createStream(new IdentifyBinding(new IdentifyProtocol()));
+                    stream.getController()
+                            .thenCompose(IdentifyController::id)
+                            .thenAccept(remoteId -> {
+                                Multiaddr[] remoteAddrs = remoteId.getListenAddrsList()
+                                        .stream()
+                                        .map(bytes -> Multiaddr.deserialize(bytes.toByteArray()))
+                                        .toArray(Multiaddr[]::new);
+
+                                addrs.addAddrs(remotePeer, 0, remoteAddrs);
+                                List<String> protocolIds = remoteId.getProtocolsList().stream().collect(Collectors.toList());
+                                if (protocolIds.contains(Kademlia.WAN_DHT_ID) && wan.isPresent()) {
+                                    // add to kademlia routing table iffi
+                                    // 1) we haven't already dialled them
+                                    // 2) they accept a new kademlia stream
+                                    if (existing.isEmpty())
+                                        connection.muxerSession().createStream(wan.get());
+                                }
+                            });
+                });
             });
 
             for (String listenAddr : listenAddrs) {

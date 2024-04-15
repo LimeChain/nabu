@@ -20,7 +20,7 @@ public class ProvideTest {
     public void provideBlock() {
         RamBlockstore blockstore = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(), new RamRecordStore(), blockstore, (c, b, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true), false);
         Host node1 = builder1.build();
         node1.start().join();
         Multihash node1Id = Multihash.deserialize(node1.getPeerId().getBytes());
@@ -56,7 +56,6 @@ public class ProvideTest {
             byte[] blockData = ("This is hopefully a unique block" + System.currentTimeMillis()).getBytes();
             Cid block = blockstore.put(blockData, Cid.Codec.Raw).join();
             PeerAddresses ourAddresses = new PeerAddresses(node1Id, node1.listenAddresses().stream()
-                    .map(m -> new MultiAddress(m.toString()))
                     .collect(Collectors.toList()));
             dht.provideBlock(block, node1, ourAddresses).join();
 
