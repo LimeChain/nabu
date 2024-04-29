@@ -100,15 +100,15 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <minimizeJar>true</minimizeJar>
-                            <filters>
-                                <filter>
-                                    <artifact>netty-codec-http2:netty-codec-http2</artifact>
-                                    <includes>
-                                        <include>**</include>
-                                    </includes>
-                                </filter>
-                            </filters>
+                            <minimizeJar>false</minimizeJar>
+<!--                            <filters>-->
+<!--                                <filter>-->
+<!--                                    <artifact>netty-codec-http2:netty-codec-http2</artifact>-->
+<!--                                    <includes>-->
+<!--                                        <include>**</include>-->
+<!--                                    </includes>-->
+<!--                                </filter>-->
+<!--                            </filters>-->
                         </configuration>
                     </execution>
                 </executions>
