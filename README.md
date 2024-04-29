@@ -1,3 +1,5 @@
+![logo](assets/nabu-logo.png)
+
 # Nabu
 
 A minimal Java implementation of [IPFS](https://ipfs.io)
@@ -27,14 +29,16 @@ Currently implemented properties:
 * bloom/[infini filtered](https://www.rasmuspagh.net/papers/infinifilter.pdf) blockstore
 * connect bitswap to kademlia for discovery, with a faster version with supplied peerids
 * configurable cid publishing function
+* Android compatibility
+* example serverless chat app using p2p http proxy for Android
+* interop tests with other implementations - https://github.com/libp2p/test-plans/
 
 In the future we will add:
 * circuit-relay
 * dcutr (direct connection upgrade through relay)
 * AutoRelay
 * mDNS peer discovery
-* Android compatibility
-* example serverless chat app using p2p http proxy for Android and iOS
+* example iOS chat app
 * QUIC transport (and encryption and multiplexing)
 
 ## Usage
@@ -62,6 +66,48 @@ for Maven, add the following sections to your pom.xml (replacing $LATEST_VERSION
   </dependencies>
 ```
 
+
+Build using Maven
+
+```
+mvn package -Dmaven.test.skip=true
+```
+
+
+### Embedded usage
+```java
+List<MultiAddress> swarmAddresses = List.of(new MultiAddress("/ip6/::/tcp/4001"));
+List<MultiAddress> bootstrapAddresses = List.of(new MultiAddress("/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa"));
+BlockRequestAuthoriser authoriser = (cid, peerid, auth) -> CompletableFuture.completedFuture(true);
+HostBuilder builder = new HostBuilder().generateIdentity();
+PrivKey privKey = builder.getPrivateKey();
+PeerId peerId = builder.getPeerId();
+IdentitySection identity = new IdentitySection(privKey.bytes(), peerId);
+boolean provideBlocks = true;
+
+SocketAddress httpTarget = new InetSocketAddress("localhost", 10000);
+Optional<HttpProtocol.HttpRequestProcessor> httpProxyTarget =
+        Optional.of((s, req, h) -> HttpProtocol.proxyRequest(req, httpTarget, h));
+        
+EmbeddedIpfs ipfs = EmbeddedIpfs.build(new RamRecordStore(),
+        new FileBlockstore(Path.of("/home/alice/ipfs")),
+        provideBlocks,
+        swarmAddresses,
+        bootstrapAddresses,
+        identity,
+        authoriser,
+        httpProxyTarget
+);
+ipfs.start();
+
+List<Want> wants = List.of(new Want(Cid.decode("zdpuAwfJrGYtiGFDcSV3rDpaUrqCtQZRxMjdC6Eq9PNqLqTGg")));
+Set<PeerId> retrieveFrom = Set.of(PeerId.fromBase58("QmVdFZgHnEgcedCS2G2ZNiEN59LuVrnRm7z3yXtEBv2XiF"));
+boolean addToLocal = true;
+List<HashedBlock> blocks = ipfs.getBlocks(wants, retrieveFrom, addToLocal);
+byte[] data = blocks.get(0).block;
+```
+### Demo app
+If you want a working example app you can fork, have a look at our [chat example](https://github.com/Peergos/nabu-chat). This is a simple CLI app where two users exchange peerid (out of band) and then connect and send messages via p2p http requests, which are printed to the console.
 
 ### S3 Blockstore
 

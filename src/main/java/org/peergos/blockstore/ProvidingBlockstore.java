@@ -2,14 +2,16 @@ package org.peergos.blockstore;
 
 import io.ipfs.cid.*;
 import io.ipfs.multihash.*;
+import org.peergos.blockstore.metadatadb.*;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.*;
 
 public class ProvidingBlockstore implements Blockstore {
 
     private final Blockstore target;
-    public final Queue<Cid> toPublish = new LinkedBlockingDeque<>();
+    public final BlockingDeque<Cid> toPublish = new LinkedBlockingDeque<>();
 
     public ProvidingBlockstore(Blockstore target) {
         this.target = target;
@@ -43,12 +45,17 @@ public class ProvidingBlockstore implements Blockstore {
     }
 
     @Override
-    public CompletableFuture<List<Cid>> refs() {
-        return target.refs();
+    public CompletableFuture<List<Cid>> refs(boolean useBlockstore) {
+        return target.refs(useBlockstore);
     }
 
     @Override
     public CompletableFuture<Boolean> bloomAdd(Cid cid) {
         return target.bloomAdd(cid);
+    }
+
+    @Override
+    public CompletableFuture<BlockMetadata> getBlockMetadata(Cid h) {
+        return target.getBlockMetadata(h);
     }
 }

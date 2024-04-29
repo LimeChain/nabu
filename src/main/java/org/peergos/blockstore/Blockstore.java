@@ -3,6 +3,8 @@ package org.peergos.blockstore;
 import io.ipfs.cid.*;
 import io.ipfs.multibase.binary.Base32;
 import io.ipfs.multihash.Multihash;
+import org.peergos.blockstore.metadatadb.BlockMetadata;
+import org.peergos.blockstore.metadatadb.BlockMetadataStore;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -30,7 +32,9 @@ public interface Blockstore {
 
     CompletableFuture<Boolean> rm(Cid c);
 
-    CompletableFuture<List<Cid>> refs();
+    CompletableFuture<List<Cid>> refs(boolean useBlockstore);
 
     CompletableFuture<Boolean> bloomAdd(Cid cid);
+
+    CompletableFuture<BlockMetadata> getBlockMetadata(Cid h);
 }

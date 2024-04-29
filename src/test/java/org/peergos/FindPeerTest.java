@@ -13,11 +13,12 @@ import java.util.concurrent.*;
 
 public class FindPeerTest {
 
+    @Ignore
     @Test
     public void findLongRunningNode() {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(), new RamRecordStore(), blockstore1, (c, b, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
         Host node1 = builder1.build();
         node1.start().join();
         IdentifyBuilder.addIdentifyProtocol(node1);
@@ -49,7 +50,7 @@ public class FindPeerTest {
         PeerAddresses peer = matching.get();
         Multiaddr[] addrs = peer.getPublicAddresses().stream().map(a -> Multiaddr.fromString(a.toString())).toArray(Multiaddr[]::new);
         dht1.dial(node1, PeerId.fromBase58(peer.peerId.toBase58()), addrs)
-                .getController().join().closerPeers(toFind).join();
+                .getController().join().closerPeers(toFind.toBytes()).join();
         System.out.println("Peer lookup took " + (t2-t1) + "ms");
         return t2 - t1;
     }

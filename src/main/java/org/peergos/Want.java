@@ -1,10 +1,11 @@
 package org.peergos;
 
 import io.ipfs.cid.Cid;
+import org.peergos.config.*;
 
 import java.util.*;
 
-public class Want {
+public class Want implements Jsonable {
     public final Cid cid;
     public final Optional<String> authHex;
     public Want(Cid cid, Optional<String> authHex) {
@@ -24,8 +25,24 @@ public class Want {
         return cid.equals(want.cid) && authHex.equals(want.authHex);
     }
 
+    public Map<String, Object> toJson() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("c", cid.toString());
+        authHex.ifPresent(h -> m.put("a", h));
+        return m;
+    }
+
+    public static Want fromJson(Map<String, String> m) {
+        return new Want(Cid.decode(m.get("c")), Optional.ofNullable(m.get("a")));
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(cid, authHex);
+    }
+
+    @Override
+    public String toString() {
+        return cid.toString() + "(" + authHex.orElse("") + ")";
     }
 }

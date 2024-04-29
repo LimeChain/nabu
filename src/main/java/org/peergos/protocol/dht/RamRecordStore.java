@@ -1,6 +1,5 @@
 package org.peergos.protocol.dht;
 
-import io.ipfs.cid.*;
 import io.ipfs.multihash.*;
 import org.peergos.protocol.ipns.*;
 
@@ -19,7 +18,7 @@ public class RamRecordStore implements RecordStore {
     }
 
     @Override
-    public Optional<IpnsRecord> get(Cid peerId) {
+    public Optional<IpnsRecord> get(Multihash peerId) {
         return Optional.ofNullable(records.get(peerId));
     }
 
@@ -27,4 +26,7 @@ public class RamRecordStore implements RecordStore {
     public void remove(Multihash peerId) {
         records.remove(peerId);
     }
+
+    @Override
+    public void close() throws Exception {}
 }

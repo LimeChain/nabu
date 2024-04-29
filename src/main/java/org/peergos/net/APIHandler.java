@@ -1,19 +1,25 @@
 package org.peergos.net;
 
 import io.ipfs.cid.Cid;
+import io.ipfs.multihash.*;
 import io.libp2p.core.PeerId;
+import io.libp2p.crypto.keys.*;
 import org.peergos.*;
+import org.peergos.cbor.*;
+import org.peergos.protocol.ipns.*;
+import org.peergos.protocol.ipns.pb.*;
 import org.peergos.util.*;
 import com.sun.net.httpserver.HttpExchange;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.*;
 import java.util.*;
 import java.util.logging.Logger;
 import java.util.stream.*;
 
 public class APIHandler extends Handler {
     public static final String API_URL = "/api/v0/";
-    public static final Version CURRENT_VERSION = Version.parse("0.0.1");
+    public static final Version CURRENT_VERSION = Version.parse("0.7.8");
     private static final Logger LOG = Logging.LOG();
 
     private static final boolean LOGGING = true;
@@ -23,17 +29,22 @@ public class APIHandler extends Handler {
     public static final String GET = "block/get";
     public static final String PUT = "block/put";
     public static final String RM = "block/rm";
+    public static final String RM_BULK = "block/rm/bulk";
     public static final String STAT = "block/stat";
+    public static final String BULK_STAT = "block/stat/bulk";
     public static final String REFS_LOCAL = "refs/local";
     public static final String BLOOM_ADD = "bloom/add";
     public static final String HAS = "block/has";
 
     public static final String FIND_PROVS = "dht/findprovs";
+    public static final String IPNS_GET = "ipns/get";
 
     private final EmbeddedIpfs ipfs;
+    private final int maxBlockSize;
 
     public APIHandler(EmbeddedIpfs ipfs) {
         this.ipfs = ipfs;
+        this.maxBlockSize = ipfs.maxBlockSize();
     }
 
     public void handleCallToAPI(HttpExchange httpExchange) {
@@ -90,6 +101,37 @@ public class APIHandler extends Handler {
                     }
                     break;
                 }
+                case BULK_STAT: {
+                    AggregatedMetrics.API_BLOCK_STAT_BULK.inc();
+                    Map<String, Object> json = (Map<String, Object>) JSONParser.parse(new String(readFully(httpExchange.getRequestBody())));
+                    List<Want> wants = ((List<Map<String, String>>)json.get("wants"))
+                            .stream()
+                            .map(Want::fromJson)
+                            .collect(Collectors.toList());
+                    Set<PeerId> peers = Optional.ofNullable(params.get("peers"))
+                            .map(p -> p.stream().map(PeerId::fromBase58).collect(Collectors.toSet()))
+                            .orElse(Collections.emptySet());
+                    List<HashedBlock> blocks = ipfs.getBlocks(wants, peers, true);
+                    if (wants.size() == blocks.size()) {
+                        List<List<String>> links = blocks.stream()
+                                .map(b -> b.hash.codec.equals(Cid.Codec.Raw) ?
+                                        Collections.<String>emptyList() :
+                                        CborObject.getLinks(b.hash, b.block)
+                                                .stream()
+                                                .filter(c -> c.getType() != Multihash.Type.id)
+                                                .map(Cid::toString)
+                                                .collect(Collectors.toList()))
+                                .collect(Collectors.toList());
+                        replyJson(httpExchange, JSONParser.toString(links));
+                    } else {
+                        try {
+                            httpExchange.sendResponseHeaders(400, 0);
+                        } catch (IOException ioe) {
+                            HttpUtil.replyError(httpExchange, ioe);
+                        }
+                    }
+                    break;
+                }
                 case PUT: { // https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-block-put
                     AggregatedMetrics.API_BLOCK_PUT.inc();
                     List<String> format = params.get("format");
@@ -109,7 +151,7 @@ public class APIHandler extends Handler {
                         throw new APIException("Multiple input not supported");
                     }
                     byte[] block = data.get(0);
-                    if (block.length >  1024 * 1024 * 2) { //todo what should the limit be?
+                    if (block.length > maxBlockSize) {
                         throw new APIException("Block too large");
                     }
                     Cid cid = ipfs.blockstore.put(block, Cid.Codec.lookupIPLDName(reqFormat)).join();
@@ -129,6 +171,31 @@ public class APIHandler extends Handler {
                         Map res = new HashMap<>();
                         res.put("Error", "");
                         res.put("Hash", cid.toString());
+                        replyJson(httpExchange, JSONParser.toString(res));
+                    } else {
+                        try {
+                            httpExchange.sendResponseHeaders(400, 0);
+                        } catch (IOException ioe) {
+                            HttpUtil.replyError(httpExchange, ioe);
+                        }
+                    }
+                    break;
+                }
+                case RM_BULK: {
+                    AggregatedMetrics.API_BLOCK_RM_BULK.inc();
+                    Map<String, Object> json = (Map<String, Object>) JSONParser.parse(new String(readFully(httpExchange.getRequestBody())));
+                    List<Cid> cids = ((List<String>)json.get("cids"))
+                            .stream()
+                            .map(Cid::decode)
+                            .collect(Collectors.toList());
+                    boolean deleted = true;
+                    for (Cid cid : cids) {
+                        deleted &= ipfs.blockstore.rm(cid).join();
+                    }
+
+                    if (deleted) {
+                        Map res = new HashMap<>();
+                        res.put("Res", "true");
                         replyJson(httpExchange, JSONParser.toString(res));
                     } else {
                         try {
@@ -161,7 +228,11 @@ public class APIHandler extends Handler {
                 }
                 case REFS_LOCAL: { // https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-refs-local
                     AggregatedMetrics.API_REFS_LOCAL.inc();
-                    List<Cid> refs = ipfs.blockstore.refs().join();
+                    Boolean useBlockStore = Optional.ofNullable(params.get("use-block-store"))
+                            .map(a -> a.get(0))
+                            .map(Boolean::parseBoolean)
+                            .orElse(false);
+                    List<Cid> refs = ipfs.blockstore.refs(useBlockStore).join();
                     StringBuilder sb = new StringBuilder();
                     for (Cid cid : refs) {
                         Map<String, String> entry = new HashMap<>();
@@ -211,6 +282,27 @@ public class APIHandler extends Handler {
                     replyBytes(httpExchange, sb.toString().getBytes());
                     break;
                 }
+                case IPNS_GET: {
+                    AggregatedMetrics.API_IPNS_GET.inc();
+                    if (args == null || args.size() != 1) {
+                        throw new APIException("argument \"signer\" is required");
+                    }
+                    Multihash signer = Multihash.fromBase58(args.get(0));
+                    List<IpnsRecord> records = ipfs.resolveRecords(signer, 1)
+                            .stream()
+                            .sorted()
+                            .collect(Collectors.toList());
+                    if (records.isEmpty())
+                        throw new IllegalStateException("Couldn't resolve " + signer);
+                    IpnsRecord latest = records.get(records.size() - 1);
+                    Ipns.IpnsEntry entry = Ipns.IpnsEntry.parseFrom(ByteBuffer.wrap(latest.raw));
+                    Map<String,  Object> res = new HashMap<>();
+                    res.put("sig", ArrayOps.bytesToHex(entry.getSignatureV2().toByteArray()));
+                    res.put("data", ArrayOps.bytesToHex(entry.getData().toByteArray()));
+                    String json = JSONParser.toString(res);
+                    replyJson(httpExchange, json);
+                    break;
+                }
                 default: {
                     httpExchange.sendResponseHeaders(404, 0);
                     break;
@@ -224,5 +316,15 @@ public class APIHandler extends Handler {
             if (LOGGING)
                 LOG.info("API Handler handled " + path + " query in: " + (t2 - t1) + " mS");
         }
+    }
+
+    private byte[] readFully(InputStream in) throws IOException {
+        ByteArrayOutputStream bout =  new ByteArrayOutputStream();
+        byte[] b =  new  byte[0x1000];
+        int nRead;
+        while ((nRead = in.read(b, 0, b.length)) != -1 )
+            bout.write(b, 0, nRead);
+        in.close();
+        return bout.toByteArray();
     }
 }

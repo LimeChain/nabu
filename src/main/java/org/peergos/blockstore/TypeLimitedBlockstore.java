@@ -2,12 +2,14 @@ package org.peergos.blockstore;
 
 import io.ipfs.cid.Cid;
 import io.ipfs.multihash.*;
+import org.peergos.blockstore.metadatadb.BlockMetadata;
 import org.peergos.util.*;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.*;
 
 public class TypeLimitedBlockstore implements Blockstore {
 
@@ -68,7 +70,15 @@ public class TypeLimitedBlockstore implements Blockstore {
     }
 
     @Override
-    public CompletableFuture<List<Cid>> refs() {
-        return blocks.refs();
+    public CompletableFuture<List<Cid>> refs(boolean useBlockstore) {
+        return blocks.refs(useBlockstore).thenApply(res -> res.stream()
+                .filter(c -> allowedCodecs.contains(c.codec))
+                .collect(Collectors.toList()));
     }
+
+    @Override
+    public CompletableFuture<BlockMetadata> getBlockMetadata(Cid h) {
+        return blocks.getBlockMetadata(h);
+    }
+
 }
