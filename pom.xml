@@ -6,7 +6,7 @@
 
     <groupId>com.github.peergos</groupId>
     <artifactId>nabu</artifactId>
-    <version>v0.7.8</version>
+    <version>v0.7.9</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -145,7 +145,7 @@
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
-            <version>4.3.0</version>
+            <version>5.2.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
