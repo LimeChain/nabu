@@ -1,25 +1,39 @@
 package org.peergos;
 
-import com.sun.net.httpserver.*;
+import com.sun.net.httpserver.HttpServer;
 import io.ipfs.cid.Cid;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.multiformats.*;
-import io.netty.handler.codec.http.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.*;
-import org.peergos.protocol.dht.*;
-import org.peergos.protocol.http.*;
-import org.peergos.util.*;
-import org.peergos.util.HttpUtil;
+import io.libp2p.core.Host;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.netty.handler.codec.http.DefaultFullHttpRequest;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpVersion;
+import org.junit.Assert;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.IdentifyBuilder;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
+import org.peergos.protocol.http.HttpProtocol;
+import org.peergos.util.JSONParser;
 
-import java.io.*;
-import java.net.*;
-import java.nio.charset.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.zip.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPInputStream;
 
 public class HttpProxyTest {
 
@@ -34,19 +48,19 @@ public class HttpProxyTest {
     public void p2pProxyRequest() throws IOException {
         InetSocketAddress unusedProxyTarget = new InetSocketAddress("127.0.0.1", 7000);
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false)
+                        new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false)
                 .addProtocol(new HttpProtocol.Binding(unusedProxyTarget));
         Host node1 = builder1.build();
         InetSocketAddress proxyTarget = new InetSocketAddress("127.0.0.1", TestPorts.getPort());
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
-                        new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false)
+                        new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false)
                 .addProtocol(new HttpProtocol.Binding(proxyTarget));
         Host node2 = builder2.build();
         node1.start().join();
         node2.start().join();
 
         // start local server with fixed HTTP response
-        byte[] httpReply = new byte[1024*1024];
+        byte[] httpReply = new byte[1024 * 1024];
         new Random(42).nextBytes(httpReply);
         HttpServer localhostServer = HttpServer.create(proxyTarget, 20);
         String headerName = "Random-Header";
@@ -79,7 +93,7 @@ public class HttpProxyTest {
 
                 ByteArrayOutputStream bout = new ByteArrayOutputStream();
                 resp.content().readBytes(bout, resp.headers().getInt("content-length"));
-                Assert.assertTrue(resp.headers().get(headerName).equals(headerValue));
+                Assert.assertEquals(resp.headers().get(headerName), headerValue);
                 resp.release();
                 byte[] replyBody = bout.toByteArray();
                 equal(replyBody, httpReply);
@@ -95,11 +109,11 @@ public class HttpProxyTest {
     public void p2pProxyClientTest() throws Exception {
         InetSocketAddress unusedProxyTarget = new InetSocketAddress("127.0.0.1", 7000);
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                        new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false)
+                        new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false)
                 .addProtocol(new HttpProtocol.Binding(unusedProxyTarget));
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
         Kademlia dht = builder1.getWanDht().get();
         dht.bootstrapRoutingTable(node1, BootstrapTest.BOOTSTRAP_NODES, a -> true);
         System.out.println("Bootstrapping node...");
@@ -136,7 +150,7 @@ public class HttpProxyTest {
 
                 GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(bout.toByteArray()));
 
-                List<String> reply = (List)JSONParser.parse(new String(readFully(gzip)));
+                List<String> reply = (List) JSONParser.parse(new String(readFully(gzip)));
                 Assert.assertTrue(reply.contains("peergos"));
             }
             System.out.println("Average: " + totalTime / count);
@@ -146,10 +160,10 @@ public class HttpProxyTest {
     }
 
     public static byte[] readFully(InputStream in) throws IOException {
-        ByteArrayOutputStream bout =  new ByteArrayOutputStream();
-        byte[] b =  new  byte[0x1000];
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        byte[] b = new byte[0x1000];
         int nRead;
-        while ((nRead = in.read(b, 0, b.length)) != -1 )
+        while ((nRead = in.read(b, 0, b.length)) != -1)
             bout.write(b, 0, nRead);
         in.close();
         return bout.toByteArray();
@@ -161,9 +175,9 @@ public class HttpProxyTest {
         for (int i = 0; i < a.length; i++)
             if (a[i] != b[i]) {
                 byte[] diff = Arrays.copyOfRange(a, i, i + 24);
-                int j=0;
-                for (;j < b.length-2;j++)
-                    if (b[j] == diff[0] && b[j+1] == diff[1]&& b[j+2] == diff[2])
+                int j = 0;
+                for (; j < b.length - 2; j++)
+                    if (b[j] == diff[0] && b[j + 1] == diff[1] && b[j + 2] == diff[2])
                         break;
                 throw new IllegalStateException("bytes differ at " + i + " " + a[i] + " != " + b[i]);
             }

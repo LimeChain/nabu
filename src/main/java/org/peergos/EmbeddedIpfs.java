@@ -1,40 +1,64 @@
 package org.peergos;
 
-import io.ipfs.cid.*;
-import io.ipfs.multiaddr.*;
+import io.ipfs.cid.Cid;
+import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
-import io.libp2p.core.multiformats.*;
-import io.libp2p.core.multistream.*;
-import io.libp2p.protocol.*;
-import org.peergos.blockstore.*;
+import io.libp2p.core.AddressBook;
+import io.libp2p.core.Host;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.crypto.PrivKey;
+import io.libp2p.core.crypto.PubKey;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.libp2p.core.multistream.ProtocolBinding;
+import io.libp2p.discovery.MDnsDiscovery;
+import io.libp2p.protocol.Ping;
+import org.peergos.blockstore.Blockstore;
+import org.peergos.blockstore.FileBlockstore;
+import org.peergos.blockstore.FilteredBlockstore;
+import org.peergos.blockstore.ProvidingBlockstore;
+import org.peergos.blockstore.TypeLimitedBlockstore;
 import org.peergos.blockstore.metadatadb.BlockMetadataStore;
-import org.peergos.blockstore.metadatadb.JdbcBlockMetadataStore;
 import org.peergos.blockstore.metadatadb.CachingBlockMetadataStore;
+import org.peergos.blockstore.metadatadb.JdbcBlockMetadataStore;
 import org.peergos.blockstore.metadatadb.sql.H2BlockMetadataCommands;
 import org.peergos.blockstore.metadatadb.sql.UncloseableConnection;
 import org.peergos.blockstore.s3.S3Blockstore;
-import org.peergos.config.*;
+import org.peergos.config.Config;
+import org.peergos.config.FilterType;
+import org.peergos.config.IdentitySection;
 import org.peergos.net.ConnectionException;
-import org.peergos.protocol.*;
-import org.peergos.protocol.autonat.*;
-import org.peergos.protocol.bitswap.*;
-import org.peergos.protocol.circuit.*;
-import org.peergos.protocol.dht.*;
-import org.peergos.protocol.http.*;
-import org.peergos.protocol.ipns.*;
+import org.peergos.protocol.IdentifyBuilder;
+import org.peergos.protocol.autonat.AutonatProtocol;
+import org.peergos.protocol.bitswap.Bitswap;
+import org.peergos.protocol.bitswap.BitswapEngine;
+import org.peergos.protocol.circuit.CircuitHopProtocol;
+import org.peergos.protocol.circuit.CircuitStopProtocol;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.KademliaController;
+import org.peergos.protocol.dht.KademliaEngine;
+import org.peergos.protocol.dht.ProviderStore;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RecordStore;
+import org.peergos.protocol.http.HttpProtocol;
+import org.peergos.protocol.ipns.IPNS;
+import org.peergos.protocol.ipns.IpnsRecord;
 import org.peergos.util.Logging;
 
-import java.nio.file.*;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.time.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.logging.*;
-import java.util.stream.*;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.CompletableFuture;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class EmbeddedIpfs {
     private static final Logger LOG = Logging.LOG();
@@ -49,6 +73,8 @@ public class EmbeddedIpfs {
     public final Optional<HttpProtocol.Binding> p2pHttp;
     private final List<MultiAddress> bootstrap;
     private final Optional<PeriodicBlockProvider> blockProvider;
+    private final List<MultiAddress> announce;
+    private final List<MDnsDiscovery> mdns = new ArrayList<>();
 
     public EmbeddedIpfs(Host node,
                         Blockstore blockstore,
@@ -57,7 +83,8 @@ public class EmbeddedIpfs {
                         Bitswap bitswap,
                         Optional<HttpProtocol.Binding> p2pHttp,
                         List<MultiAddress> bootstrap,
-                        Optional<BlockingDeque<Cid>> newBlockProvider) {
+                        Optional<BlockingDeque<Cid>> newBlockProvider,
+                        List<MultiAddress> announce) {
         this.node = node;
         this.blockstore = blockstore;
         this.records = records;
@@ -68,6 +95,7 @@ public class EmbeddedIpfs {
         this.blocks = new BitswapBlockService(node, bitswap, dht);
         this.blockProvider = newBlockProvider.map(q -> new PeriodicBlockProvider(22 * 3600_000L,
                 () -> blockstore.refs(false).join().stream(), node, dht, q));
+        this.announce = announce;
     }
 
     public int maxBlockSize() {
@@ -138,12 +166,15 @@ public class EmbeddedIpfs {
             try {
                 this.stop().join();
             } catch (Exception ex) {
-                ex.printStackTrace();
+                LOG.info(ex.getMessage());
             }
         });
         Runtime.getRuntime().addShutdownHook(shutdownHook);
         node.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node);
+        IdentifyBuilder.addIdentifyProtocol(node, announce.stream()
+                .map(MultiAddress::toString)
+                .map(Multiaddr::new)
+                .collect(Collectors.toList()));
         LOG.info("Node started and listening on " + node.listenAddresses());
         LOG.info("Bootstrapping IPFS routing table");
         if (bootstrap.isEmpty())
@@ -153,15 +184,34 @@ public class EmbeddedIpfs {
         dht.bootstrap(node);
         dht.startBootstrapThread(node);
 
-        blockProvider.ifPresent(p -> p.start());
+        LOG.info("MDNS discovery enabled");
+        MDnsDiscovery mdns = new MDnsDiscovery(node, "_ipfs-discovery._udp.local.", 60, null);
+        this.mdns.add(mdns);
+        mdns.addHandler(peerInfo -> {
+            PeerId remote = PeerId.fromBase58(peerInfo.getPeerId().toBase58().substring(1)); // Not sure what's wrong with peerInfo, but this works
+            if (!remote.equals(node.getPeerId())) {
+                LOG.info(node.getPeerId() + " found local peer: " + remote.toBase58() + ", addrs: " + peerInfo.getAddresses());
+                Multiaddr[] remoteAddrs = peerInfo.getAddresses().toArray(new Multiaddr[0]);
+                KademliaController ctr = dht.dial(node, remote, remoteAddrs).getController().join();
+                ctr.closerPeers(node.getPeerId().getBytes()).join();
+                node.getAddressBook().addAddrs(remote, 0, remoteAddrs);
+            }
+            return null;
+        });
+        mdns.start();
+
+        blockProvider.ifPresent(PeriodicBlockProvider::start);
     }
 
     public CompletableFuture<Void> stop() throws Exception {
         if (records != null) {
             records.close();
         }
-        blockProvider.ifPresent(b -> b.stop());
+        blockProvider.ifPresent(PeriodicBlockProvider::stop);
         dht.stopBootstrapThread();
+        for (MDnsDiscovery m : mdns) {
+            m.stop();
+        }
         return node != null ? node.stop() : CompletableFuture.completedFuture(null);
     }
 
@@ -179,6 +229,7 @@ public class EmbeddedIpfs {
             throw new RuntimeException(e);
         }
     }
+
     public static Blockstore buildBlockStore(Config config, Path ipfsPath, BlockMetadataStore meta, boolean updateMetadb) {
         Blockstore withMetadb;
         if (config.datastore.blockMount.prefix.equals("flatfs.datastore")) {
@@ -206,9 +257,9 @@ public class EmbeddedIpfs {
     public static Blockstore filteredBlockStore(Blockstore blocks, Config config) {
         if (config.datastore.filter.type == FilterType.BLOOM) {
             return FilteredBlockstore.bloomBased(blocks, config.datastore.filter.falsePositiveRate);
-        } else if(config.datastore.filter.type == FilterType.INFINI) {
+        } else if (config.datastore.filter.type == FilterType.INFINI) {
             return FilteredBlockstore.infiniBased(blocks, config.datastore.filter.falsePositiveRate);
-        } else if(config.datastore.filter.type == FilterType.NONE) {
+        } else if (config.datastore.filter.type == FilterType.NONE) {
             return blocks;
         } else {
             throw new IllegalStateException("Unhandled filter type: " + config.datastore.filter.type);
@@ -224,8 +275,8 @@ public class EmbeddedIpfs {
                                      BlockRequestAuthoriser authoriser,
                                      Optional<HttpProtocol.HttpRequestProcessor> handler,
                                      boolean localEnabled) {
-        return build(records, blocks, provideBlocks, swarmAddresses, bootstrap, identity, authoriser, handler, localEnabled,
-                Optional.empty(), Optional.empty());
+        return build(records, blocks, provideBlocks, swarmAddresses, bootstrap, identity, Collections.emptyList(),
+                authoriser, handler, localEnabled, Optional.empty(), Optional.empty());
     }
 
     public static EmbeddedIpfs build(RecordStore records,
@@ -234,6 +285,7 @@ public class EmbeddedIpfs {
                                      List<MultiAddress> swarmAddresses,
                                      List<MultiAddress> bootstrap,
                                      IdentitySection identity,
+                                     List<MultiAddress> announce,
                                      BlockRequestAuthoriser authoriser,
                                      Optional<HttpProtocol.HttpRequestProcessor> handler,
                                      boolean localEnabled,
@@ -245,7 +297,7 @@ public class EmbeddedIpfs {
         ProviderStore providers = new RamProviderStore(10_000);
 
         HostBuilder builder = new HostBuilder().setIdentity(identity.privKeyProtobuf).listen(swarmAddresses);
-        if (! builder.getPeerId().equals(identity.peerId)) {
+        if (!builder.getPeerId().equals(identity.peerId)) {
             throw new IllegalStateException("PeerId invalid");
         }
         Multihash ourPeerId = Multihash.deserialize(builder.getPeerId().getBytes());
@@ -268,9 +320,9 @@ public class EmbeddedIpfs {
         Host node = builder.addProtocols(protocols).build();
 
         Optional<BlockingDeque<Cid>> newBlockProvider = provideBlocks ?
-                Optional.of(((ProvidingBlockstore)blockstore).toPublish) :
+                Optional.of(((ProvidingBlockstore) blockstore).toPublish) :
                 Optional.empty();
-        return new EmbeddedIpfs(node, blockstore, records, dht, bitswap, httpHandler, bootstrap, newBlockProvider);
+        return new EmbeddedIpfs(node, blockstore, records, dht, bitswap, httpHandler, bootstrap, newBlockProvider, announce);
     }
 
     public static Multiaddr[] getAddresses(Host node, Kademlia dht, Multihash targetNodeId) throws ConnectionException {

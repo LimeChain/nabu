@@ -1,17 +1,24 @@
 package org.peergos;
 
-import io.ipfs.multiaddr.*;
-import io.libp2p.core.*;
-import io.libp2p.core.multiformats.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.circuit.*;
-import org.peergos.protocol.dht.*;
+import io.ipfs.multiaddr.MultiAddress;
+import io.libp2p.core.Host;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.multiformats.Multiaddr;
+import org.junit.Assert;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.circuit.CircuitHopProtocol;
+import org.peergos.protocol.circuit.Relay;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
 
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.*;
-import java.util.stream.*;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public class RelayTest {
 
@@ -19,11 +26,11 @@ public class RelayTest {
     @Ignore // needs fixed find providers
     public void relay() {
         HostBuilder builder1 = HostBuilder.create(10000 + new Random().nextInt(50000),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true),false,  false);
         Host node1 = builder1.build();
         node1.start().join();
         HostBuilder builder2 = HostBuilder.create(10000 + new Random().nextInt(50000),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true),false,  false);
         Host node2 = builder2.build();
         node2.start().join();
 

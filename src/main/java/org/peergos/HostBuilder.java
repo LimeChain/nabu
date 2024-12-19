@@ -1,25 +1,40 @@
 package org.peergos;
 
-import io.ipfs.multiaddr.*;
+import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
-import io.libp2p.core.dsl.*;
-import io.libp2p.core.multiformats.*;
-import io.libp2p.core.multistream.*;
-import io.libp2p.core.mux.*;
-import io.libp2p.crypto.keys.*;
-import io.libp2p.protocol.*;
-import io.libp2p.security.noise.*;
-import io.libp2p.transport.tcp.*;
+import io.libp2p.core.ConnectionHandler;
+import io.libp2p.core.Host;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.StreamPromise;
 import io.libp2p.core.crypto.KeyKt;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.autonat.*;
-import org.peergos.protocol.bitswap.*;
-import org.peergos.protocol.circuit.*;
-import org.peergos.protocol.dht.*;
-import java.util.*;
-import java.util.stream.*;
+import io.libp2p.core.crypto.PrivKey;
+import io.libp2p.core.dsl.Builder;
+import io.libp2p.core.dsl.BuilderJKt;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.libp2p.core.multistream.ProtocolBinding;
+import io.libp2p.core.mux.StreamMuxerProtocol;
+import io.libp2p.crypto.keys.Ed25519Kt;
+import io.libp2p.protocol.IdentifyBinding;
+import io.libp2p.protocol.IdentifyController;
+import io.libp2p.protocol.IdentifyProtocol;
+import io.libp2p.protocol.Ping;
+import io.libp2p.security.noise.NoiseXXSecureChannel;
+import io.libp2p.transport.tcp.TcpTransport;
+import org.peergos.blockstore.Blockstore;
+import org.peergos.protocol.autonat.AutonatProtocol;
+import org.peergos.protocol.bitswap.Bitswap;
+import org.peergos.protocol.bitswap.BitswapEngine;
+import org.peergos.protocol.circuit.CircuitHopProtocol;
+import org.peergos.protocol.circuit.CircuitStopProtocol;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.KademliaEngine;
+import org.peergos.protocol.dht.ProviderStore;
+import org.peergos.protocol.dht.RecordStore;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class HostBuilder {
     private PrivKey privKey;
@@ -46,21 +61,21 @@ public class HostBuilder {
     public Optional<Kademlia> getWanDht() {
         return protocols.stream()
                 .filter(p -> p instanceof Kademlia && p.getProtocolDescriptor().getAnnounceProtocols().contains("/ipfs/kad/1.0.0"))
-                .map(p -> (Kademlia)p)
+                .map(p -> (Kademlia) p)
                 .findFirst();
     }
 
     public Optional<Bitswap> getBitswap() {
         return protocols.stream()
                 .filter(p -> p instanceof Bitswap)
-                .map(p -> (Bitswap)p)
+                .map(p -> (Bitswap) p)
                 .findFirst();
     }
 
     public Optional<CircuitHopProtocol.Binding> getRelayHop() {
         return protocols.stream()
                 .filter(p -> p instanceof CircuitHopProtocol.Binding)
-                .map(p -> (CircuitHopProtocol.Binding)p)
+                .map(p -> (CircuitHopProtocol.Binding) p)
                 .findFirst();
     }
 
@@ -91,7 +106,6 @@ public class HostBuilder {
     public HostBuilder setIdentity(byte[] privKey) {
         return setPrivKey(KeyKt.unmarshalPrivateKey(privKey));
     }
-
 
 
     public HostBuilder setPrivKey(PrivKey privKey) {
@@ -182,7 +196,7 @@ public class HostBuilder {
                 if (connection.isInitiator())
                     return;
                 addrs.getAddrs(remotePeer).thenAccept(existing -> {
-                    if (! existing.isEmpty())
+                    if (!existing.isEmpty())
                         return;
                     StreamPromise<IdentifyController> stream = connection.muxerSession()
                             .createStream(new IdentifyBinding(new IdentifyProtocol()));
@@ -217,7 +231,7 @@ public class HostBuilder {
         });
         for (ProtocolBinding protocol : protocols) {
             if (protocol instanceof HostConsumer)
-                ((HostConsumer)protocol).setHost(host);
+                ((HostConsumer) protocol).setHost(host);
         }
         return host;
     }

@@ -1,17 +1,20 @@
 package org.peergos;
 
-import io.ipfs.multiaddr.*;
+import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.*;
-import org.peergos.protocol.dht.*;
+import io.libp2p.core.Host;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.IdentifyBuilder;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
 
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.*;
-import java.util.stream.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public class BootstrapTest {
 
@@ -37,10 +40,10 @@ public class BootstrapTest {
     @Test
     public void bootstrap() {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
         Multihash node1Id = Multihash.deserialize(node1.getPeerId().getBytes());
 
         try {
@@ -53,7 +56,7 @@ public class BootstrapTest {
 
             // lookup ourselves in DHT to find our nearest nodes
             List<PeerAddresses> closestPeers = dht.findClosestPeers(node1Id, 20, node1);
-            if (closestPeers.size() < connections/2)
+            if (closestPeers.size() < connections / 2)
                 throw new IllegalStateException("Didn't find more close peers after bootstrap: " +
                         closestPeers.size() + " < " + connections);
         } finally {

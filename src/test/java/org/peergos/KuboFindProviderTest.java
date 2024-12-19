@@ -20,11 +20,11 @@ public class KuboFindProviderTest {
     @Test
     public void findProviderOverYamux() throws IOException {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(), new RamProviderStore(1000),
-                        new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false)
+                        new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false)
                 .addMuxers(List.of(StreamMuxerProtocol.getYamux()));
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
         try {
             IPFS kubo = new IPFS("localhost", 5001);
             Multiaddr address2 = Multiaddr.fromString("/ip4/127.0.0.1/tcp/4001/p2p/" + kubo.id().get("ID"));

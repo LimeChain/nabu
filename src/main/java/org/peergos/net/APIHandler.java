@@ -1,25 +1,39 @@
 package org.peergos.net;
 
-import io.ipfs.cid.Cid;
-import io.ipfs.multihash.*;
-import io.libp2p.core.PeerId;
-import io.libp2p.crypto.keys.*;
-import org.peergos.*;
-import org.peergos.cbor.*;
-import org.peergos.protocol.ipns.*;
-import org.peergos.protocol.ipns.pb.*;
-import org.peergos.util.*;
 import com.sun.net.httpserver.HttpExchange;
+import io.ipfs.cid.Cid;
+import io.ipfs.multihash.Multihash;
+import io.libp2p.core.PeerId;
+import org.peergos.AggregatedMetrics;
+import org.peergos.EmbeddedIpfs;
+import org.peergos.HashedBlock;
+import org.peergos.PeerAddresses;
+import org.peergos.Want;
+import org.peergos.cbor.CborObject;
+import org.peergos.protocol.ipns.IpnsRecord;
+import org.peergos.protocol.ipns.pb.Ipns;
+import org.peergos.util.ArrayOps;
+import org.peergos.util.HttpUtil;
+import org.peergos.util.JSONParser;
+import org.peergos.util.Logging;
+import org.peergos.util.Version;
 
-import java.io.*;
-import java.nio.*;
-import java.util.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.logging.Logger;
-import java.util.stream.*;
+import java.util.stream.Collectors;
 
 public class APIHandler extends Handler {
     public static final String API_URL = "/api/v0/";
-    public static final Version CURRENT_VERSION = Version.parse("0.7.9");
+    public static final Version CURRENT_VERSION = Version.parse("0.8.0");
     private static final Logger LOG = Logging.LOG();
 
     private static final boolean LOGGING = true;
@@ -52,7 +66,7 @@ public class APIHandler extends Handler {
         long t1 = System.currentTimeMillis();
         String path = httpExchange.getRequestURI().getPath();
         try {
-            if (! path.startsWith(API_URL))
+            if (!path.startsWith(API_URL))
                 throw new IllegalStateException("Unsupported api version, required: " + API_URL);
             path = path.substring(API_URL.length());
             // N.B. URI.getQuery() decodes the query string
@@ -64,7 +78,7 @@ public class APIHandler extends Handler {
                     AggregatedMetrics.API_ID.inc();
                     PeerId peerId = ipfs.node.getPeerId();
                     Map res = new HashMap<>();
-                    res.put("ID",  peerId.toBase58());
+                    res.put("ID", peerId.toBase58());
                     replyJson(httpExchange, JSONParser.toString(res));
                     break;
                 }
@@ -90,7 +104,7 @@ public class APIHandler extends Handler {
                             .map(a -> Boolean.parseBoolean(a.get(0)))
                             .orElse(true);
                     List<HashedBlock> block = ipfs.getBlocks(List.of(new Want(Cid.decode(args.get(0)), auth)), peers, addToBlockstore);
-                    if (! block.isEmpty()) {
+                    if (!block.isEmpty()) {
                         replyBytes(httpExchange, block.get(0).block);
                     } else {
                         try {
@@ -104,7 +118,7 @@ public class APIHandler extends Handler {
                 case BULK_STAT: {
                     AggregatedMetrics.API_BLOCK_STAT_BULK.inc();
                     Map<String, Object> json = (Map<String, Object>) JSONParser.parse(new String(readFully(httpExchange.getRequestBody())));
-                    List<Want> wants = ((List<Map<String, String>>)json.get("wants"))
+                    List<Want> wants = ((List<Map<String, String>>) json.get("wants"))
                             .stream()
                             .map(Want::fromJson)
                             .collect(Collectors.toList());
@@ -135,7 +149,7 @@ public class APIHandler extends Handler {
                 case PUT: { // https://docs.ipfs.tech/reference/kubo/rpc/#api-v0-block-put
                     AggregatedMetrics.API_BLOCK_PUT.inc();
                     List<String> format = params.get("format");
-                    Optional<String> formatOpt = format !=null && format.size() == 1 ? Optional.of(format.get(0)) : Optional.empty();
+                    Optional<String> formatOpt = format != null && format.size() == 1 ? Optional.of(format.get(0)) : Optional.empty();
                     if (formatOpt.isEmpty()) {
                         throw new APIException("argument \"format\" is required");
                     }
@@ -184,7 +198,7 @@ public class APIHandler extends Handler {
                 case RM_BULK: {
                     AggregatedMetrics.API_BLOCK_RM_BULK.inc();
                     Map<String, Object> json = (Map<String, Object>) JSONParser.parse(new String(readFully(httpExchange.getRequestBody())));
-                    List<Cid> cids = ((List<String>)json.get("cids"))
+                    List<Cid> cids = ((List<String>) json.get("cids"))
                             .stream()
                             .map(Cid::decode)
                             .collect(Collectors.toList());
@@ -213,7 +227,7 @@ public class APIHandler extends Handler {
                     }
                     Optional<String> auth = Optional.ofNullable(params.get("auth")).map(a -> a.get(0));
                     List<HashedBlock> block = ipfs.getBlocks(List.of(new Want(Cid.decode(args.get(0)), auth)), Collections.emptySet(), false);
-                    if (! block.isEmpty()) {
+                    if (!block.isEmpty()) {
                         Map res = new HashMap<>();
                         res.put("Size", block.get(0).block.length);
                         replyJson(httpExchange, JSONParser.toString(res));
@@ -296,7 +310,7 @@ public class APIHandler extends Handler {
                         throw new IllegalStateException("Couldn't resolve " + signer);
                     IpnsRecord latest = records.get(records.size() - 1);
                     Ipns.IpnsEntry entry = Ipns.IpnsEntry.parseFrom(ByteBuffer.wrap(latest.raw));
-                    Map<String,  Object> res = new HashMap<>();
+                    Map<String, Object> res = new HashMap<>();
                     res.put("sig", ArrayOps.bytesToHex(entry.getSignatureV2().toByteArray()));
                     res.put("data", ArrayOps.bytesToHex(entry.getData().toByteArray()));
                     String json = JSONParser.toString(res);
@@ -319,10 +333,10 @@ public class APIHandler extends Handler {
     }
 
     private byte[] readFully(InputStream in) throws IOException {
-        ByteArrayOutputStream bout =  new ByteArrayOutputStream();
-        byte[] b =  new  byte[0x1000];
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        byte[] b = new byte[0x1000];
         int nRead;
-        while ((nRead = in.read(b, 0, b.length)) != -1 )
+        while ((nRead = in.read(b, 0, b.length)) != -1)
             bout.write(b, 0, nRead);
         in.close();
         return bout.toByteArray();

@@ -9,17 +9,27 @@ import io.libp2p.core.PeerId;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.peergos.blockstore.*;
+import org.peergos.blockstore.Blockstore;
+import org.peergos.blockstore.ProvidingBlockstore;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.blockstore.TypeLimitedBlockstore;
 import org.peergos.client.NabuClient;
 import org.peergos.net.APIHandler;
-import org.peergos.protocol.bitswap.*;
+import org.peergos.protocol.bitswap.Bitswap;
+import org.peergos.protocol.bitswap.BitswapEngine;
 import org.peergos.protocol.dht.Kademlia;
 import org.peergos.protocol.dht.RamProviderStore;
 import org.peergos.protocol.dht.RamRecordStore;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.function.Predicate;
@@ -46,7 +56,7 @@ public class HandlerTest {
             apiServer = HttpServer.create(localAPIAddress, 500);
             Blockstore blocks = new TypeLimitedBlockstore(new RamBlockstore(), Set.of(Cid.Codec.Raw));
             EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(blocks), null, null,
-                    new Bitswap(new BitswapEngine(null, null, Bitswap.MAX_MESSAGE_SIZE)), Optional.empty(), Collections.emptyList(), Optional.empty());
+                    new Bitswap(new BitswapEngine(null, null, Bitswap.MAX_MESSAGE_SIZE)), Optional.empty(), Collections.emptyList(), Optional.empty(), Collections.emptyList());
             apiServer.createContext(APIHandler.API_URL, new APIHandler(ipfs));
             apiServer.setExecutor(Executors.newFixedThreadPool(50));
             apiServer.start();
@@ -78,12 +88,13 @@ public class HandlerTest {
             }
         }
     }
+
     @Test
     @Ignore
     public void findBlockProviderTest() throws IOException {
         RamBlockstore blockstore = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(10000 + new Random().nextInt(50000),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
         HttpServer apiServer = null;
@@ -100,7 +111,7 @@ public class HandlerTest {
 
             apiServer = HttpServer.create(localAPIAddress, 500);
             EmbeddedIpfs ipfs = new EmbeddedIpfs(node1, new ProvidingBlockstore(new RamBlockstore()), null, dht,
-                    null, Optional.empty(), Collections.emptyList(), Optional.empty());
+                    null, Optional.empty(), Collections.emptyList(), Optional.empty(), Collections.emptyList());
             apiServer.createContext(APIHandler.API_URL, new APIHandler(ipfs));
             apiServer.setExecutor(Executors.newFixedThreadPool(50));
             apiServer.start();
@@ -117,6 +128,7 @@ public class HandlerTest {
             }
         }
     }
+
     @Test
     public void blockMethodsTest() {
         HttpServer apiServer = null;
@@ -126,7 +138,7 @@ public class HandlerTest {
 
             apiServer = HttpServer.create(localAPIAddress, 500);
             EmbeddedIpfs ipfs = new EmbeddedIpfs(null, new ProvidingBlockstore(new RamBlockstore()), null,
-                    null, new Bitswap(new BitswapEngine(null, null, Bitswap.MAX_MESSAGE_SIZE)), Optional.empty(), Collections.emptyList(), Optional.empty());
+                    null, new Bitswap(new BitswapEngine(null, null, Bitswap.MAX_MESSAGE_SIZE)), Optional.empty(), Collections.emptyList(), Optional.empty(), Collections.emptyList());
             apiServer.createContext(APIHandler.API_URL, new APIHandler(ipfs));
             apiServer.setExecutor(Executors.newFixedThreadPool(50));
             apiServer.start();
@@ -139,7 +151,7 @@ public class HandlerTest {
             byte[] block = text.getBytes();
             Cid addedHash = nabu.putBlock(block, Optional.of("raw"));
 
-            int size  = nabu.stat(addedHash);
+            int size = nabu.stat(addedHash);
             Assert.assertTrue("size as expected", size == text.length());
 
             boolean has = nabu.hasBlock(addedHash, Optional.empty());
