@@ -1,19 +1,28 @@
 package org.peergos;
 
-import io.libp2p.core.*;
-import io.libp2p.core.multiformats.*;
-import org.jetbrains.annotations.*;
-import org.peergos.util.*;
+import io.libp2p.core.AddressBook;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.libp2p.core.multiformats.MultiaddrComponent;
+import io.libp2p.core.multiformats.Protocol;
+import org.jetbrains.annotations.NotNull;
+import org.peergos.util.LRUCache;
 
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.stream.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RamAddressBook implements AddressBook {
 
-    // TODO: Does this need to be public?
-    public Map<PeerId, Set<Multiaddr>> addresses;
+    private final Map<PeerId, Set<Multiaddr>> addresses;
 
     public RamAddressBook() {
         addresses = Collections.synchronizedMap(new LRUCache<>(10_000));

@@ -18,10 +18,10 @@ public class FindPeerTest {
     public void findLongRunningNode() {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
 
         try {
             // bootstrap node 1
@@ -51,7 +51,7 @@ public class FindPeerTest {
         Multiaddr[] addrs = peer.getPublicAddresses().stream().map(a -> Multiaddr.fromString(a.toString())).toArray(Multiaddr[]::new);
         dht1.dial(node1, PeerId.fromBase58(peer.peerId.toBase58()), addrs)
                 .getController().join().closerPeers(toFind.toBytes()).join();
-        System.out.println("Peer lookup took " + (t2-t1) + "ms");
+        System.out.println("Peer lookup took " + (t2 - t1) + "ms");
         return t2 - t1;
     }
 }

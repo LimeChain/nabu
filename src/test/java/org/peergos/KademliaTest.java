@@ -1,18 +1,28 @@
 package org.peergos;
 
-import io.ipfs.cid.*;
+import io.ipfs.cid.Cid;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
-import io.libp2p.core.multiformats.*;
-import io.libp2p.crypto.keys.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.*;
-import org.peergos.protocol.dht.*;
+import io.libp2p.core.Host;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.crypto.PrivKey;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.libp2p.crypto.keys.Ed25519Kt;
+import org.junit.Assert;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.IdentifyBuilder;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.KademliaEngine;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class KademliaTest {
 
@@ -20,16 +30,16 @@ public class KademliaTest {
     public void findOtherNode() throws Exception {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
 
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node2 = builder2.build();
         node2.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node2);
+        IdentifyBuilder.addIdentifyProtocol(node2, Collections.emptyList());
 
         try {
             // bootstrap node 2
@@ -61,16 +71,16 @@ public class KademliaTest {
     public void ipnsBenchmark() throws Exception {
         RamBlockstore blockstore1 = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore1, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
 
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node2 = builder2.build();
         node2.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node2);
+        IdentifyBuilder.addIdentifyProtocol(node2, Collections.emptyList());
 
         Cid value = blockstore1.put("Publish me.".getBytes(), Cid.Codec.Raw).join();
 
@@ -96,8 +106,8 @@ public class KademliaTest {
                 long p0 = System.currentTimeMillis();
                 int publishes = dht1.publishIpnsValue(signer, pub, value, 1, node1).join();
                 long p1 = System.currentTimeMillis();
-                System.out.println("Publish took " + printSeconds(p1-p0) + "s to " + publishes + " peers.");
-                publishTotal += p1-p0;
+                System.out.println("Publish took " + printSeconds(p1 - p0) + "s to " + publishes + " peers.");
+                publishTotal += p1 - p0;
 
                 // retrieve it from node 2
                 long t0 = System.currentTimeMillis();
@@ -105,10 +115,10 @@ public class KademliaTest {
                 long t1 = System.currentTimeMillis();
                 Assert.assertTrue(res.equals("/ipfs/" + value));
                 System.out.println("Resolved in " + printSeconds(t1 - t0) + "s");
-                resolveTotal += t1-t0;
+                resolveTotal += t1 - t0;
             }
-            System.out.println("Publish av: " + printSeconds(publishTotal/iterations)
-                    + ", resolve av: " + printSeconds(resolveTotal/iterations));
+            System.out.println("Publish av: " + printSeconds(publishTotal / iterations)
+                    + ", resolve av: " + printSeconds(resolveTotal / iterations));
 
             // retrieve all again
             for (PrivKey signer : signers) {
@@ -126,7 +136,7 @@ public class KademliaTest {
     }
 
     public static String printSeconds(long millis) {
-        return millis / 1000 + "." + (millis % 1000)/100;
+        return millis / 1000 + "." + (millis % 1000) / 100;
     }
 
     @Test
@@ -136,9 +146,9 @@ public class KademliaTest {
                 new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore());
         RamAddressBook addrs = new RamAddressBook();
         kad.setAddressBook(addrs);
-        for (int i=0; i < 1000; i++) {
+        for (int i = 0; i < 1000; i++) {
             PeerId peer = new HostBuilder().generateIdentity().getPeerId();
-            for (int j=0; j < 100; j++) {
+            for (int j = 0; j < 100; j++) {
                 kad.addIncomingConnection(peer);
                 addrs.addAddrs(peer, 0, new Multiaddr[]{new Multiaddr("/ip4/127.0.0.1/tcp/4001/p2p/" + peer.toBase58())});
             }

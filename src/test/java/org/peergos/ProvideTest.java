@@ -1,17 +1,20 @@
 package org.peergos;
 
-import io.ipfs.cid.*;
-import io.ipfs.multiaddr.*;
-import io.ipfs.multihash.*;
-import io.libp2p.core.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.dht.*;
+import io.ipfs.cid.Cid;
+import io.ipfs.multiaddr.MultiAddress;
+import io.ipfs.multihash.Multihash;
+import io.libp2p.core.Host;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.dht.Kademlia;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
 
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.*;
-import java.util.stream.*;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public class ProvideTest {
 
@@ -20,7 +23,7 @@ public class ProvideTest {
     public void provideBlock() {
         RamBlockstore blockstore = new RamBlockstore();
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         node1.start().join();
         Multihash node1Id = Multihash.deserialize(node1.getPeerId().getBytes());

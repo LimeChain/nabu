@@ -1,18 +1,27 @@
 package org.peergos;
 
-import io.ipfs.cid.*;
+import io.ipfs.cid.Cid;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.multiformats.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.bitswap.*;
-import org.peergos.protocol.dht.*;
+import io.libp2p.core.Host;
+import io.libp2p.core.multiformats.Multiaddr;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.bitswap.Bitswap;
+import org.peergos.protocol.dht.RamProviderStore;
+import org.peergos.protocol.dht.RamRecordStore;
 
-import java.nio.charset.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.stream.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class BitswapTest {
     private static final Random rnd = new Random(28);
@@ -20,11 +29,11 @@ public class BitswapTest {
     @Test
     public void getBlock() {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         RamBlockstore blockstore2 = new RamBlockstore();
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore2, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore2, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node2 = builder2.build();
         node1.start().join();
         node2.start().join();
@@ -38,7 +47,7 @@ public class BitswapTest {
                     .stream()
                     .map(f -> f.join())
                     .collect(Collectors.toList());
-            if (! Arrays.equals(receivedBlock.get(0).block, blockData))
+            if (!Arrays.equals(receivedBlock.get(0).block, blockData))
                 throw new IllegalStateException("Incorrect block returned!");
         } finally {
             node1.stop();
@@ -49,11 +58,11 @@ public class BitswapTest {
     @Test
     public void getTenBlocks() {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node1 = builder1.build();
         RamBlockstore blockstore2 = new RamBlockstore();
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), blockstore2, (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), blockstore2, (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host node2 = builder2.build();
         node1.start().join();
         node2.start().join();
@@ -61,8 +70,8 @@ public class BitswapTest {
             Multiaddr address2 = node2.listenAddresses().get(0);
             List<Cid> hashes = new ArrayList<>();
             Random random = new Random(28);
-            for (int i=0; i < 10; i++) {
-                byte[] blockData = new byte[1024*1024];
+            for (int i = 0; i < 10; i++) {
+                byte[] blockData = new byte[1024 * 1024];
                 random.nextBytes(blockData);
                 Cid hash = blockstore2.put(blockData, Cid.Codec.Raw).join();
                 hashes.add(hash);
@@ -85,7 +94,7 @@ public class BitswapTest {
     @Test
     public void blockFlooder() {
         HostBuilder builder1 = HostBuilder.create(TestPorts.getPort(),
-                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false);
+                new RamProviderStore(1000), new RamRecordStore(), new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), false, false);
         Host flooder = builder1.build();
         RamBlockstore blockstore2 = new RamBlockstore();
         HostBuilder builder2 = HostBuilder.create(TestPorts.getPort(),
@@ -112,7 +121,7 @@ public class BitswapTest {
                 if (Arrays.equals(receivedBlockAgain.get(0).block, blockData))
                     throw new IllegalStateException("Received block!");
             } catch (CompletionException t) {
-                if (! (t.getCause() instanceof TimeoutException))
+                if (!(t.getCause() instanceof TimeoutException))
                     throw t;
             }
         } finally {

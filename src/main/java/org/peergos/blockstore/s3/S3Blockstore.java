@@ -10,16 +10,27 @@ import org.peergos.blockstore.RateLimitException;
 import org.peergos.blockstore.metadatadb.BlockMetadata;
 import org.peergos.blockstore.metadatadb.BlockMetadataStore;
 import org.peergos.cbor.CborObject;
+import org.peergos.util.ArrayOps;
+import org.peergos.util.Futures;
 import org.peergos.util.Hasher;
-import org.peergos.util.*;
+import org.peergos.util.HttpUtil;
+import org.peergos.util.Logging;
+import org.peergos.util.Pair;
 
 import javax.net.ssl.SSLException;
-import java.io.*;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
@@ -28,7 +39,9 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public class S3Blockstore implements Blockstore {
 
@@ -130,13 +143,16 @@ public class S3Blockstore implements Blockstore {
         hasher = new Hasher();
         LOG.info("Using S3BlockStore");
     }
+
     private String getHost() {
         return bucket + "." + regionEndpoint;
     }
+
     private boolean useHttps() {
         String host = getHost();
-        return ! host.endsWith("localhost") && ! host.contains("localhost:");
+        return !host.endsWith("localhost") && !host.contains("localhost:");
     }
+
     private Map<String, String> readKeysFromAwsConfig() {
         String filePath = System.getenv("HOME") + "/" + ".aws/credentials";
         LOG.info("Reading [default] config from: " + filePath);
@@ -146,19 +162,19 @@ public class S3Blockstore implements Blockstore {
             boolean foundDefaultSection = false;
             boolean foundAccessKey = false;
             boolean foundSecretKey = false;
-            for(String line : lines) {
+            for (String line : lines) {
                 String trimmedLine = line.trim();
-                if(!foundDefaultSection) {
-                    if (trimmedLine.equals("[default]")){
+                if (!foundDefaultSection) {
+                    if (trimmedLine.equals("[default]")) {
                         foundDefaultSection = true;
                     }
                 } else {
                     if (trimmedLine.startsWith("[")) {
                         throw new IllegalStateException("Unable to read expected fields in: " + filePath);
-                    } else if(trimmedLine.startsWith("aws_access_key_id")) {
+                    } else if (trimmedLine.startsWith("aws_access_key_id")) {
                         params.put("aws_access_key_id", extractParamValue(trimmedLine));
                         foundAccessKey = true;
-                    } else if(trimmedLine.startsWith("aws_secret_access_key")) {
+                    } else if (trimmedLine.startsWith("aws_secret_access_key")) {
                         params.put("aws_secret_access_key", extractParamValue(trimmedLine));
                         foundSecretKey = true;
                     }
@@ -175,10 +191,11 @@ public class S3Blockstore implements Blockstore {
                 throw new IllegalStateException("Unable to find aws_secret_access_key");
             }
         } catch (IOException ioe) {
-            throw new IllegalStateException("Unable to read: "  + filePath, ioe);
+            throw new IllegalStateException("Unable to read: " + filePath, ioe);
         }
         return params;
     }
+
     private String extractParamValue(String line) {
         int equalsIndex = line.indexOf("=");
         if (equalsIndex == -1) {
@@ -186,16 +203,18 @@ public class S3Blockstore implements Blockstore {
         }
         return line.substring(equalsIndex + 1).trim();
     }
+
     private String getParam(Map<String, Object> params, String key) {
         if (params.containsKey(key)) {
-            return ((String )params.get(key)).trim();
+            return ((String) params.get(key)).trim();
         } else {
             throw new IllegalStateException("Expecting param: " + key);
         }
     }
+
     private String getParam(Map<String, Object> params, String key, String defaultValue) {
         if (params.containsKey(key)) {
-            return ((String )params.get(key)).trim();
+            return ((String) params.get(key)).trim();
         } else {
             return defaultValue;
         }
@@ -233,7 +252,7 @@ public class S3Blockstore implements Blockstore {
         ForkJoinPool pool = new ForkJoinPool(updateParallelism);
         int batchSize = all.size() / updateParallelism;
         AtomicLong progress = new AtomicLong(0);
-        int tenth = batchSize/10;
+        int tenth = batchSize / 10;
 
         List<ForkJoinTask<Optional<BlockMetadata>>> futures = IntStream.range(0, updateParallelism)
                 .mapToObj(b -> pool.submit(() -> IntStream.range(b * batchSize, (b + 1) * batchSize)
@@ -256,13 +275,14 @@ public class S3Blockstore implements Blockstore {
 
     private static <V> V getWithBackoff(Supplier<V> req) {
         long sleep = 100;
-        for (int i=0; i < 20; i++) {
+        for (int i = 0; i < 20; i++) {
             try {
                 return req.get();
             } catch (RateLimitException e) {
                 try {
                     Thread.sleep(sleep);
-                } catch (InterruptedException f) {}
+                } catch (InterruptedException f) {
+                }
                 sleep *= 2;
             }
         }
@@ -294,7 +314,7 @@ public class S3Blockstore implements Blockstore {
             Map<String, List<String>> headRes = HttpUtil.head(headUrl.base, headUrl.fields);
             blockHeads.inc();
             long size = Long.parseLong(headRes.get("Content-Length").get(0));
-            return Futures.of(Optional.of((int)size));
+            return Futures.of(Optional.of((int) size));
         } catch (FileNotFoundException f) {
             LOG.warning("S3 404 error reading " + cid);
             return Futures.of(Optional.empty());
@@ -306,7 +326,7 @@ public class S3Blockstore implements Blockstore {
                 throw new RateLimitException();
             }
             boolean notFound = msg.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>NoSuchKey</Code>");
-            if (! notFound) {
+            if (!notFound) {
                 LOG.warning("S3 error reading " + cid);
                 LOG.log(Level.WARNING, msg, e);
             }
@@ -344,12 +364,12 @@ public class S3Blockstore implements Blockstore {
                 throw new RateLimitException();
             }
             boolean notFound = msg.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>NoSuchKey</Code>");
-            if (! notFound) {
+            if (!notFound) {
                 LOG.warning("S3 error reading " + path);
                 LOG.log(Level.WARNING, msg, e);
             }
             failedBlockGets.inc();
-            throw new RuntimeException(e.getMessage(), e);
+            return Futures.errored(e);
         } finally {
             readTimer.observeDuration();
         }
@@ -359,6 +379,7 @@ public class S3Blockstore implements Blockstore {
     public CompletableFuture<Cid> put(byte[] block, Cid.Codec codec) {
         return getWithBackoff(() -> putWithoutRetry(block, codec));
     }
+
     public CompletableFuture<Cid> putWithoutRetry(byte[] block, Cid.Codec codec) {
         Histogram.Timer writeTimer = writeTimerLog.labels("write").startTimer();
         byte[] hash = Hash.sha256(block);
@@ -368,7 +389,7 @@ public class S3Blockstore implements Blockstore {
             String s3Key = folder + key;
             Map<String, String> extraHeaders = new TreeMap<>();
             extraHeaders.put("Content-Type", "application/octet-stream");
-            String contentHash =  ArrayOps.bytesToHex(hash);
+            String contentHash = ArrayOps.bytesToHex(hash);
             PresignedUrl putUrl = S3Request.preSignPut(s3Key, block.length, contentHash, false,
                     S3AdminRequests.asAwsDate(ZonedDateTime.now()), host, extraHeaders, region, accessKeyId, secretKey, useHttps, hasher).join();
             HttpUtil.put(putUrl.base, putUrl.fields, block);

@@ -1,27 +1,39 @@
 package org.peergos;
 
-import io.ipfs.multiaddr.*;
-import io.ipfs.multihash.*;
-import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
-import io.libp2p.crypto.keys.*;
-import org.peergos.blockstore.*;
-import org.peergos.config.*;
-import org.peergos.protocol.dht.*;
-import org.peergos.protocol.ipns.*;
-import org.peergos.util.*;
+import io.ipfs.multiaddr.MultiAddress;
+import io.ipfs.multihash.Multihash;
+import io.libp2p.core.PeerId;
+import io.libp2p.core.crypto.KeyKt;
+import io.libp2p.core.crypto.PrivKey;
+import io.libp2p.crypto.keys.Ed25519Kt;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.config.Config;
+import org.peergos.config.IdentitySection;
+import org.peergos.protocol.dht.RamRecordStore;
+import org.peergos.protocol.ipns.IPNS;
+import org.peergos.protocol.ipns.IpnsRecord;
+import org.peergos.util.ArrayOps;
 
-import java.io.*;
-import java.nio.file.*;
-import java.time.*;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.*;
-import java.util.stream.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class IpnsPublisher {
     private static final ExecutorService ioExec = Executors.newFixedThreadPool(50);
+
     public static void main(String[] a) throws Exception {
         Path publishFile = Paths.get("publishers.txt");
         EmbeddedIpfs publisher = startIpfs();
@@ -36,7 +48,7 @@ public class IpnsPublisher {
                     .collect(Collectors.toList());
 
             System.out.println("Resolving " + records.size() + " keys");
-            for (int c=0; c < 100; c++) {
+            for (int c = 0; c < 100; c++) {
                 long t0 = System.currentTimeMillis();
                 List<Integer> recordCounts = resolveAndRepublish(records, resolver, publisher);
                 Path resultsFile = Paths.get("publish-resolve-counts-" + LocalDateTime.now().withNano(0) + ".txt");
@@ -75,7 +87,7 @@ public class IpnsPublisher {
                     System.out.println("published " + done + " / " + keycount);
             }
             long t1 = System.currentTimeMillis();
-            System.out.println("Published all in " + (t1-t0)/1000 + "s");
+            System.out.println("Published all in " + (t1 - t0) / 1000 + "s");
             publisher.stop().join();
         }
         System.exit(0);

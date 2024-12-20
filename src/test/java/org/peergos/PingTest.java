@@ -1,21 +1,28 @@
 package org.peergos;
 
-import identify.pb.*;
-import io.ipfs.multiaddr.*;
+import identify.pb.IdentifyOuterClass;
+import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
-import io.libp2p.core.*;
-import io.libp2p.core.crypto.*;
-import io.libp2p.core.multiformats.*;
-import io.libp2p.core.multistream.*;
-import io.libp2p.crypto.keys.*;
-import io.libp2p.protocol.*;
-import org.junit.*;
-import org.peergos.blockstore.*;
-import org.peergos.protocol.*;
-import org.peergos.protocol.bitswap.*;
+import io.libp2p.core.Host;
+import io.libp2p.core.crypto.PrivKey;
+import io.libp2p.core.multiformats.Multiaddr;
+import io.libp2p.core.multistream.ProtocolBinding;
+import io.libp2p.crypto.keys.Ed25519Kt;
+import io.libp2p.crypto.keys.RsaKt;
+import io.libp2p.protocol.Identify;
+import io.libp2p.protocol.IdentifyController;
+import io.libp2p.protocol.Ping;
+import io.libp2p.protocol.PingController;
+import org.junit.Assert;
+import org.junit.Test;
+import org.peergos.blockstore.RamBlockstore;
+import org.peergos.protocol.IdentifyBuilder;
+import org.peergos.protocol.bitswap.Bitswap;
+import org.peergos.protocol.bitswap.BitswapEngine;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public class PingTest {
 
@@ -62,8 +69,8 @@ public class PingTest {
                 new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
         node1.start().join();
         node2.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
-        IdentifyBuilder.addIdentifyProtocol(node2);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
+        IdentifyBuilder.addIdentifyProtocol(node2, Collections.emptyList());
 
         Assert.assertTrue(new Multihash(Multihash.Type.id, node1Keys.publicKey().bytes()).toString().equals(node1.getPeerId().toString()));
         Assert.assertTrue(new Multihash(Multihash.Type.sha2_256, Hash.sha256(node2Keys.publicKey().bytes())).toString().equals(node2.getPeerId().toString()));
@@ -87,9 +94,9 @@ public class PingTest {
         Host node1 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
         Host node2 = HostBuilder.build(TestPorts.getPort(), List.of(new Ping(), new Bitswap(new BitswapEngine(new RamBlockstore(), (c, p, a) -> CompletableFuture.completedFuture(true), Bitswap.MAX_MESSAGE_SIZE))));
         node1.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node1);
+        IdentifyBuilder.addIdentifyProtocol(node1, Collections.emptyList());
         node2.start().join();
-        IdentifyBuilder.addIdentifyProtocol(node2);
+        IdentifyBuilder.addIdentifyProtocol(node2, Collections.emptyList());
         try {
             // ping from 1 to 2
             Multiaddr address2 = node2.listenAddresses().get(0);
